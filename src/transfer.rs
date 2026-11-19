@@ -4,14 +4,14 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 /// Remote folder, relative to the remote home directory.
-pub const REMOTE_DIR: &str = "screenshots";
+pub const REMOTE_DIR: &str = ".easySCP";
 
 /// How the destination is shown to the user (and what "Copy path" copies).
 pub fn display_path(remote_name: &str) -> String {
     format!("~/{REMOTE_DIR}/{remote_name}")
 }
 
-/// Copies `source` to `host:~/screenshots/<remote_name>`. Blocks until done.
+/// Copies `source` to `host:~/.easySCP/<remote_name>`. Blocks until done.
 pub fn upload(host: &str, source: &Path, remote_name: &str) -> Result<(), String> {
     let first = scp(host, source, remote_name);
     if first.is_ok() {
