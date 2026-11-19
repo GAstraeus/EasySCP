@@ -3,6 +3,7 @@ name = "easyscp"
 version = "0.1.0"
 edition = "2021"
 description = "Drop or paste a file to scp it to a host from your SSH config"
+license = "MIT"
 
 [dependencies]
 arboard = "3"

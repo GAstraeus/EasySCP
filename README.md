@@ -87,3 +87,7 @@ If you add a host while the app is open, click the reload button next to the dro
 - **Destination folder:** edit `REMOTE_DIR` in `src/transfer.rs`, then run `./bundle.sh` again.
 - **Run without building the app:** `cargo run --release`
 - **Run the tests:** `cargo test`
+
+## License
+
+MIT. See [LICENSE](LICENSE).
