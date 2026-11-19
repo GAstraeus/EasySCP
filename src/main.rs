@@ -208,7 +208,25 @@ impl App {
         }
     }
 
-    fn transfer_list(&self, ui: &mut egui::Ui) {
+    fn transfer_list(&mut self, ui: &mut egui::Ui) {
+        if self.transfers.is_empty() {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Uploads").weak());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let sending = |t: &Transfer| matches!(t.status, Status::Sending);
+                let any_finished = !self.transfers.iter().all(sending);
+                let clear = ui
+                    .add_enabled(any_finished, egui::Button::new("Clear list").small())
+                    .on_hover_text("Removes finished uploads from this list. The files stay on the server.");
+                if clear.clicked() {
+                    // Uploads still running stay, so a late failure isn't hidden.
+                    self.transfers.retain(sending);
+                }
+            });
+        });
+
         let error_color = ui.visuals().error_fg_color;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
