@@ -257,7 +257,9 @@ impl App {
                                 ui.ctx().copy_text(path.clone());
                             }
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                let text = format!("{}:{path}", transfer.host);
+                                // macOS screenshot names contain a narrow no-break
+                                // space, which the UI font draws as an empty box.
+                                let text = format!("{}:{path}", transfer.host).replace('\u{202f}', " ");
                                 ui.add(egui::Label::new(text).truncate());
                             });
                         });
