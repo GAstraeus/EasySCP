@@ -46,7 +46,7 @@ impl Source {
                 .file_name()
                 .map_or_else(|| "file".to_owned(), |n| n.to_string_lossy().into_owned()),
             Source::Image(_) => chrono::Local::now()
-                .format("screenshot-%Y%m%d-%H%M%S.png")
+                .format("paste-%Y%m%d-%H%M%S.png")
                 .to_string(),
         }
     }
