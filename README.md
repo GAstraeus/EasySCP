@@ -85,6 +85,7 @@ If you add a host while the app is open, click the reload button next to the dro
 ## Changing things
 
 - **Destination folder:** edit `REMOTE_DIR` in `src/transfer.rs`, then run `./bundle.sh` again.
+- **App icon:** edit `assets/apple_icon.icon` in Apple's Icon Composer, run `./make-icon.sh`, then `./bundle.sh` again.
 - **Run without building the app:** `cargo run --release`
 - **Run the tests:** `cargo test`
 
