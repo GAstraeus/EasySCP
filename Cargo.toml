@@ -1,0 +1,23 @@
+[package]
+name = "easyscp"
+version = "0.1.0"
+edition = "2021"
+description = "Drop or paste a file to scp it to a host from your SSH config"
+
+[dependencies]
+arboard = "3"
+chrono = "0.4"
+eframe = { version = "0.31", features = ["persistence"] }
+glob = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Used only to notice Cmd+V when the clipboard holds an image (egui drops that
+# key press). Versions match the ones winit already pulls in.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.5"
+objc2-app-kit = { version = "0.2", features = ["NSEvent", "block2"] }
+objc2-foundation = { version = "0.2", features = ["NSString"] }
+
+[profile.release]
+opt-level = 2
+strip = true

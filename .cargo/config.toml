@@ -1,0 +1,4 @@
+# Pick dependency versions that build with the installed Rust toolchain
+# instead of the newest ones (which may need a newer compiler).
+[resolver]
+incompatible-rust-versions = "fallback"
