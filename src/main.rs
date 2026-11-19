@@ -229,6 +229,9 @@ impl App {
                 }
             });
         });
+        // Keep "Clear list" clear of the first "Copy path" below it, so one
+        // isn't clicked for the other.
+        ui.add_space(8.0);
 
         let error_color = ui.visuals().error_fg_color;
         egui::ScrollArea::vertical()
