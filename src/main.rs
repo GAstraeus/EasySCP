@@ -20,8 +20,8 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("EasySCP")
-            .with_inner_size([440.0, 460.0])
-            .with_min_inner_size([340.0, 300.0]),
+            .with_inner_size([440.0, 420.0])
+            .with_min_inner_size([340.0, 260.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -39,7 +39,7 @@ enum Source {
 }
 
 impl Source {
-    /// The name it gets on the remote side unless the user renames it.
+    /// The name it gets on the remote side.
     fn name(&self) -> String {
         match self {
             Source::File(path) => path
@@ -70,7 +70,6 @@ type Finished = (u64, Result<(), String>);
 struct App {
     hosts: Vec<String>,
     host: Option<String>,
-    rename: String,
     /// Why the last drop or paste wasn't sent.
     notice: Option<String>,
     transfers: Vec<Transfer>,
@@ -91,7 +90,6 @@ impl App {
         Self {
             hosts,
             host,
-            rename: String::new(),
             notice: None,
             transfers: Vec::new(),
             next_id: 0,
@@ -109,23 +107,12 @@ impl App {
             self.notice = Some("Choose a host first.".to_owned());
             return;
         };
-        // Settle every name before starting, so a bad name sends nothing.
-        let mut jobs = Vec::new();
-        for (index, source) in sources.into_iter().enumerate() {
-            match transfer::remote_name(&source.name(), &self.rename, index) {
-                Ok(remote_name) => jobs.push((source, remote_name)),
-                Err(problem) => {
-                    self.notice = Some(problem);
-                    return;
-                }
-            }
-        }
         self.notice = None;
-        self.rename.clear();
 
-        for (source, remote_name) in jobs {
+        for source in sources {
             let id = self.next_id;
             self.next_id += 1;
+            let remote_name = source.name();
             self.transfers.push(Transfer {
                 id,
                 host: host.clone(),
@@ -141,72 +128,44 @@ impl App {
         }
     }
 
-    /// Cmd+V: send a copied file or image. Plain text is left alone so it can
-    /// still be pasted into the "Save as" field.
-    fn handle_paste_key(&mut self, ctx: &egui::Context) {
-        let pressed = paste::take_paste_key();
-        let is_text_paste = |e: &egui::Event| matches!(e, egui::Event::Paste(_));
-        let text_paste = ctx.input(|i| i.events.iter().any(is_text_paste));
-        if !pressed && !text_paste {
-            return;
-        }
+    /// Sends whatever file or image is on the clipboard.
+    fn send_clipboard(&mut self, ctx: &egui::Context) {
         let sources = clipboard_sources();
         if sources.is_empty() {
-            if pressed && ctx.memory(|m| m.focused().is_none()) {
-                self.notice = Some("The clipboard doesn't hold a file or an image.".to_owned());
-            }
-            return;
-        }
-        // A copied file also puts its name on the clipboard as text; keep
-        // that from landing in the "Save as" field (also on key repeat).
-        ctx.input_mut(|i| i.events.retain(|e| !is_text_paste(e)));
-        if pressed {
+            self.notice = Some("The clipboard doesn't hold a file or an image.".to_owned());
+        } else {
             self.send(ctx, sources);
         }
     }
 
-    fn form(&mut self, ui: &mut egui::Ui) {
-        egui::Grid::new("form")
-            .num_columns(2)
-            .spacing([10.0, 8.0])
-            .show(ui, |ui| {
-                ui.label("Host");
-                ui.horizontal(|ui| {
-                    let reload_width = 32.0;
-                    let selected = match &self.host {
-                        Some(host) => host.as_str(),
-                        None if self.hosts.is_empty() => "No hosts in ~/.ssh/config",
-                        None => "Choose a host…",
-                    };
-                    egui::ComboBox::from_id_salt("host")
-                        .width(ui.available_width() - reload_width)
-                        .selected_text(selected)
-                        .show_ui(ui, |ui| {
-                            for host in &self.hosts {
-                                ui.selectable_value(&mut self.host, Some(host.clone()), host);
-                            }
-                        });
-                    if ui
-                        .button("🔄")
-                        .on_hover_text("Reload hosts from ~/.ssh/config")
-                        .clicked()
-                    {
-                        self.hosts = ssh_config::load_hosts();
-                        if self.host.as_ref().is_some_and(|h| !self.hosts.contains(h)) {
-                            self.host = None;
-                        }
+    fn host_picker(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label("Host");
+            let reload_width = 32.0;
+            let selected = match &self.host {
+                Some(host) => host.as_str(),
+                None if self.hosts.is_empty() => "No hosts in ~/.ssh/config",
+                None => "Choose a host…",
+            };
+            egui::ComboBox::from_id_salt("host")
+                .width(ui.available_width() - reload_width)
+                .selected_text(selected)
+                .show_ui(ui, |ui| {
+                    for host in &self.hosts {
+                        ui.selectable_value(&mut self.host, Some(host.clone()), host);
                     }
                 });
-                ui.end_row();
-
-                ui.label("Save as");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.rename)
-                        .hint_text("optional — blank keeps the original name")
-                        .desired_width(f32::INFINITY),
-                );
-                ui.end_row();
-            });
+            if ui
+                .button("🔄")
+                .on_hover_text("Reload hosts from ~/.ssh/config")
+                .clicked()
+            {
+                self.hosts = ssh_config::load_hosts();
+                if self.host.as_ref().is_some_and(|h| !self.hosts.contains(h)) {
+                    self.host = None;
+                }
+            }
+        });
     }
 
     fn drop_zone(&mut self, ui: &mut egui::Ui) {
@@ -241,12 +200,7 @@ impl App {
             });
 
         if paste_clicked {
-            let sources = clipboard_sources();
-            if sources.is_empty() {
-                self.notice = Some("The clipboard doesn't hold a file or an image.".to_owned());
-            } else {
-                self.send(ui.ctx(), sources);
-            }
+            self.send_clipboard(ui.ctx());
         }
         if let Some(notice) = &self.notice {
             ui.add_space(4.0);
@@ -305,8 +259,9 @@ impl eframe::App for App {
             }
         }
 
-        // Before any widget runs, so a file paste never reaches a text field.
-        self.handle_paste_key(ctx);
+        if paste::take_paste_key() {
+            self.send_clipboard(ctx);
+        }
 
         // Files can be dropped anywhere in the window.
         let dropped = ctx.input(|i| {
@@ -316,7 +271,7 @@ impl eframe::App for App {
         self.send(ctx, dropped);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.form(ui);
+            self.host_picker(ui);
             ui.add_space(8.0);
             self.drop_zone(ui);
             ui.add_space(8.0);

@@ -79,7 +79,7 @@ mod mac {
                 PASTE_KEY.store(true, Ordering::Relaxed);
                 ctx.request_repaint();
             }
-            // Hand the event on untouched so text fields still get it.
+            // Only observing: hand the event on untouched.
             event.as_ptr()
         });
         // SAFETY: called on the main thread; the block is copied by AppKit.
