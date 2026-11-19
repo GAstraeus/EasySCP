@@ -40,6 +40,8 @@ Everything lands in `~/.easySCP/` on the server. The folder is created the first
 
 Click **Copy path** next to a finished upload to copy where it is on the server, for example `~/.easySCP/paste-20261119-154210.png`.
 
+When the list gets long, click **Clear list**. It only tidies the window: the files stay on the server, and anything still uploading stays in the list.
+
 > Tip: <kbd>⌃</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>4</kbd> copies a screenshot of a selected area straight to the clipboard.
 
 ### File names
