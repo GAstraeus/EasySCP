@@ -1,3 +1,7 @@
+mod complete;
+mod download;
+mod list;
+mod local;
 mod paste;
 mod ssh_config;
 mod transfer;
@@ -7,9 +11,13 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use eframe::egui;
 
+use download::DownloadTab;
+use list::Status;
+
 /// Storage key for the last host used.
 const HOST_KEY: &str = "host";
-const SENT_GREEN: egui::Color32 = egui::Color32::from_rgb(46, 160, 67);
+/// Storage key for the folder chosen for downloads. Empty for the default one.
+const DOWNLOAD_FOLDER_KEY: &str = "download_folder";
 const PASTE_HINT: &str = if cfg!(target_os = "macos") {
     "or press ⌘V to paste a copied file or screenshot"
 } else {
@@ -55,10 +63,11 @@ impl Source {
     }
 }
 
-enum Status {
-    Sending,
-    Sent,
-    Failed(String),
+/// Which way files are going.
+#[derive(Clone, Copy, PartialEq)]
+enum Tab {
+    Upload,
+    Download,
 }
 
 struct Transfer {
@@ -73,6 +82,8 @@ type Finished = (u64, Result<(), String>);
 struct App {
     hosts: Vec<String>,
     host: Option<String>,
+    tab: Tab,
+    download: DownloadTab,
     /// Why the last drop or paste wasn't sent.
     notice: Option<String>,
     transfers: Vec<Transfer>,
@@ -89,10 +100,17 @@ impl App {
             .storage
             .and_then(|storage| storage.get_string(HOST_KEY))
             .filter(|host| hosts.contains(host));
+        let download_folder = cc
+            .storage
+            .and_then(|storage| storage.get_string(DOWNLOAD_FOLDER_KEY))
+            .filter(|folder| !folder.is_empty())
+            .map(PathBuf::from);
         let (finished_tx, finished_rx) = mpsc::channel();
         Self {
             hosts,
             host,
+            tab: Tab::Upload,
+            download: DownloadTab::new(download_folder),
             notice: None,
             transfers: Vec::new(),
             next_id: 0,
@@ -120,7 +138,7 @@ impl App {
                 id,
                 host: host.clone(),
                 remote_name: remote_name.clone(),
-                status: Status::Sending,
+                status: Status::Running,
             });
             let (host, finished, ctx) = (host.clone(), self.finished_tx.clone(), ctx.clone());
             std::thread::spawn(move || {
@@ -215,59 +233,26 @@ impl App {
         if self.transfers.is_empty() {
             return;
         }
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Uploads").weak());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let sending = |t: &Transfer| matches!(t.status, Status::Sending);
-                let any_finished = !self.transfers.iter().all(sending);
-                let clear = ui
-                    .add_enabled(any_finished, egui::Button::new("Clear list").small())
-                    .on_hover_text("Removes finished uploads from this list. The files stay on the server.");
-                if clear.clicked() {
-                    // Uploads still running stay, so a late failure isn't hidden.
-                    self.transfers.retain(sending);
-                }
-            });
-        });
-        // Keep "Clear list" clear of the first "Copy path" below it, so one
-        // isn't clicked for the other.
-        ui.add_space(8.0);
+        let running = |transfer: &Transfer| transfer.status.is_running();
+        if list::heading(
+            ui,
+            "Uploads",
+            !self.transfers.iter().all(running),
+            "Removes finished uploads from this list. The files stay on the server.",
+        ) {
+            // Uploads still running stay, so a late failure isn't hidden.
+            self.transfers.retain(running);
+        }
 
-        let error_color = ui.visuals().error_fg_color;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 // Newest first.
                 for transfer in self.transfers.iter().rev() {
                     let path = transfer::display_path(&transfer.remote_name);
-                    ui.horizontal(|ui| {
-                        match transfer.status {
-                            Status::Sending => drop(ui.spinner()),
-                            Status::Sent => drop(ui.colored_label(SENT_GREEN, "✔")),
-                            Status::Failed(_) => drop(ui.colored_label(error_color, "✖")),
-                        }
-                        // Button pinned right; the path takes what's left.
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if matches!(transfer.status, Status::Sent)
-                                && ui
-                                    .small_button("Copy path")
-                                    .on_hover_text("Copy the remote path")
-                                    .clicked()
-                            {
-                                ui.ctx().copy_text(path.clone());
-                            }
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                // macOS screenshot names contain a narrow no-break
-                                // space, which the UI font draws as an empty box.
-                                let text = format!("{}:{path}", transfer.host).replace('\u{202f}', " ");
-                                ui.add(egui::Label::new(text).truncate());
-                            });
-                        });
-                    });
-                    if let Status::Failed(error) = &transfer.status {
-                        ui.indent(transfer.id, |ui| {
-                            ui.label(egui::RichText::new(error).small().color(error_color));
-                        });
+                    let text = format!("{}:{path}", transfer.host);
+                    if list::row(ui, transfer.id, &transfer.status, &text, "Copy path", "Copy the remote path") {
+                        ui.ctx().copy_text(path);
                     }
                 }
             });
@@ -278,30 +263,42 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         while let Ok((id, result)) = self.finished_rx.try_recv() {
             if let Some(transfer) = self.transfers.iter_mut().find(|t| t.id == id) {
-                transfer.status = match result {
-                    Ok(()) => Status::Sent,
-                    Err(error) => Status::Failed(error),
-                };
+                transfer.status = result.into();
             }
         }
+        self.download.poll();
 
-        if paste::take_paste_key() {
+        // On the Download tab, Cmd+V pastes text into the path field.
+        if paste::take_paste_key() && self.tab == Tab::Upload {
             self.send_clipboard(ctx);
         }
 
-        // Files can be dropped anywhere in the window.
+        // Files can be dropped anywhere in the window, on either tab.
         let dropped = ctx.input(|i| {
             let paths = i.raw.dropped_files.iter().filter_map(|f| f.path.clone());
             paths.map(Source::File).collect::<Vec<_>>()
         });
+        if !dropped.is_empty() {
+            self.tab = Tab::Upload;
+        }
         self.send(ctx, dropped);
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.host_picker(ui);
             ui.add_space(8.0);
-            self.drop_zone(ui);
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.tab, Tab::Upload, "Upload");
+                ui.selectable_value(&mut self.tab, Tab::Download, "Download");
+            });
             ui.add_space(8.0);
-            self.transfer_list(ui);
+            match self.tab {
+                Tab::Upload => {
+                    self.drop_zone(ui);
+                    ui.add_space(8.0);
+                    self.transfer_list(ui);
+                }
+                Tab::Download => self.download.ui(ui, self.host.as_deref()),
+            }
         });
     }
 
@@ -309,6 +306,8 @@ impl eframe::App for App {
         if let Some(host) = &self.host {
             storage.set_string(HOST_KEY, host.clone());
         }
+        let folder = self.download.folder().and_then(|folder| folder.to_str());
+        storage.set_string(DOWNLOAD_FOLDER_KEY, folder.unwrap_or_default().to_owned());
     }
 }
 
